@@ -131,6 +131,7 @@ if __name__ == "__main__":
     dataset = TextDataset(cfg.DATA_DIR, split_dir,
                           base_size=cfg.TREE.BASE_SIZE,
                           transform=image_transform)
+    cfg.TEXT.DIC_LEN = dataset.n_words
     assert dataset
     # ! drop_last = True: 最后一个不完整的batch丢弃
     # ! shuffle = True: 数据重新洗牌打乱顺序

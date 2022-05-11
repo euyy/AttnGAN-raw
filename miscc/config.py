@@ -61,7 +61,13 @@ __C.TEXT = edict()
 __C.TEXT.CAPTIONS_PER_IMAGE = 10
 __C.TEXT.EMBEDDING_DIM = 256
 __C.TEXT.WORDS_NUM = 18
+__C.TEXT.DIC_LEN = 0
 
+__C.TEXT_ENCODER = edict()
+__C.TEXT_ENCODER.N_LAYERS = 6
+__C.TEXT_ENCODER.N_HEAD = 8
+__C.TEXT_ENCODER.D_HID = 1024
+__C.TEXT_ENCODER.DROPOUT = 0.1 
 
 def _merge_a_into_b(a, b):
     """Merge config dictionary a into config dictionary b, clobbering the

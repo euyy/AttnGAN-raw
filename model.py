@@ -11,6 +11,38 @@ from torch.nn.utils.rnn import pack_padded_sequence, pad_packed_sequence
 from miscc.config import cfg
 from GlobalAttention import GlobalAttentionGeneral as ATT_NET
 
+from transformer.Models import Encoder
+
+class TextEncoder(nn.Module):
+    def __init__(self):
+        super(TextEncoder,self).__init__()
+        self.text_len = cfg.TEXT.DIC_LEN
+        d_model = cfg.TEXT.EMBEDDING_DIM 
+        nlayers = cfg.TEXT_ENCODER.N_LAYERS
+        nhead = cfg.TEXT_ENCODER.N_HEAD
+        dropout = cfg.TEXT_ENCODER.DROPOUT
+        d_hid = cfg.TEXT_ENCODER.D_HID 
+        self.encoder = Encoder(n_src_vocab=self.text_len,
+                                            d_word_vec=d_model,
+                                            n_layers=nlayers, 
+                                            n_head=nhead, 
+                                            d_model=d_model,
+                                            dropout=dropout,
+                                            d_inner=d_hid)
+
+    def forward(self, captions):
+        '''
+        description: 
+        param {*} self
+        param {*} captions: tensor(bs, seq_len)
+        return {*} words_emb: tensor(bs, d_text, seq_len)
+        return {*} sent_emb: tensor(bs, d_text)
+        '''
+        enc_list = self.encoder(captions)
+        enc_emb = enc_list[0]
+        sent_emb, words_emb = enc_emb[:,0,:], enc_emb[:,1:,:]
+        return words_emb.transpose(1,2).contiguous(), sent_emb
+
 
 class GLU(nn.Module):
     def __init__(self):

@@ -194,9 +194,11 @@ class TextDataset(data.Dataset):
 
         ixtoword = {}
         ixtoword[0] = '<end>'
+        ixtoword[1] = '[CLS]'
         wordtoix = {}
-        wordtoix['<end>'] = 0
-        ix = 1
+        wordtoix['[CLS]'] = 1
+        wordtoix['<end>'] = 1
+        ix = 2
         for w in vocab:
             wordtoix[w] = ix
             ixtoword[ix] = w
@@ -204,7 +206,7 @@ class TextDataset(data.Dataset):
 
         train_captions_new = []
         for t in train_captions:
-            rev = []
+            rev = [1] #! 给每个句子的开始加入[cls]标记，对应的idx为1
             for w in t:
                 if w in wordtoix:
                     rev.append(wordtoix[w])
@@ -213,7 +215,7 @@ class TextDataset(data.Dataset):
 
         test_captions_new = []
         for t in test_captions:
-            rev = []
+            rev = [1] #! 给每个句子的开始加入[cls]标记，对应的idx为1
             for w in t:
                 if w in wordtoix:
                     rev.append(wordtoix[w])
@@ -281,17 +283,20 @@ class TextDataset(data.Dataset):
             print('ERROR: do not need END (0) token', sent_caption)
         num_words = len(sent_caption)
         # pad with 0s (i.e., '<end>')
-        x = np.zeros((cfg.TEXT.WORDS_NUM, 1), dtype='int64')
-        x_len = num_words
-        if num_words <= cfg.TEXT.WORDS_NUM:
+        x = np.zeros((cfg.TEXT.WORDS_NUM+1, 1), dtype='int64')
+        x_len = num_words - 1
+        if num_words <= cfg.TEXT.WORDS_NUM+1:
             x[:num_words, 0] = sent_caption
         else:
             ix = list(np.arange(num_words))  # 1, 2, 3,..., maxNum
             np.random.shuffle(ix)
-            ix = ix[:cfg.TEXT.WORDS_NUM]
+            ix = ix[:cfg.TEXT.WORDS_NUM+1]
             ix = np.sort(ix)
             x[:, 0] = sent_caption[ix]
             x_len = cfg.TEXT.WORDS_NUM
+        if(x_len == 0):
+            print(x)
+            exit()
         return x, x_len
 
     def __getitem__(self, index):
@@ -313,6 +318,9 @@ class TextDataset(data.Dataset):
         sent_ix = random.randint(0, self.embeddings_num)
         new_sent_ix = index * self.embeddings_num + sent_ix
         caps, cap_len = self.get_caption(new_sent_ix)
+        if( cap_len == 0):
+           print(caps, cap_len)
+           exit()
         return imgs, caps, cap_len, cls_id, key
 
 

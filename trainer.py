@@ -1,4 +1,5 @@
 from __future__ import print_function
+from re import S
 from six.moves import range
 
 import torch
@@ -16,6 +17,7 @@ from miscc.utils import weights_init, load_params, copy_G_params
 from model import G_DCGAN, G_NET
 from datasets import prepare_data
 from model import RNN_ENCODER, CNN_ENCODER
+# from transformer.Models import Encoder
 
 from miscc.losses import words_loss
 from miscc.losses import discriminator_loss, generator_loss, KL_loss
@@ -23,6 +25,8 @@ import os
 import time
 import numpy as np
 import sys
+
+from model import TextEncoder
 
 # ################# Text to image task############################ #
 class condGANTrainer(object):
@@ -62,8 +66,10 @@ class condGANTrainer(object):
         print('Load image encoder from:', img_encoder_path)
         image_encoder.eval()
 
-        text_encoder = \
-            RNN_ENCODER(self.n_words, nhidden=cfg.TEXT.EMBEDDING_DIM)
+        # text_encoder = \
+        #     RNN_ENCODER(self.n_words, nhidden=cfg.TEXT.EMBEDDING_DIM)
+        #! Transformer Encoder
+        text_encoder = TextEncoder()
         state_dict = \
             torch.load(cfg.TRAIN.NET_E,
                        map_location=lambda storage, loc: storage)
@@ -278,14 +284,15 @@ class condGANTrainer(object):
                 data = data_iter.next()
                 imgs, captions, cap_lens, class_ids, keys = prepare_data(data)
                 # ! hidden:(tensor(2,14,128),tensor(2,14,128))
-                hidden = text_encoder.init_hidden(batch_size)
+                # hidden = text_encoder.init_hidden(batch_size) #? 之前版本的text encoder
                 # words_embs: batch_size x nef x seq_len
                 # sent_emb: batch_size x nef
                 # ! words_embs:tensor(14,256,12)
                 # ! sent_emb:tensor(14,256)
                 # ! mask:tensor(14,12)
                 # ! n_words:12
-                words_embs, sent_emb = text_encoder(captions, cap_lens, hidden)
+                words_embs, sent_emb = text_encoder(captions)
+                # words_embs, sent_emb = text_encoder(captions, cap_lens, hidden) #? 之前版本的text encoder
                 words_embs, sent_emb = words_embs.detach(), sent_emb.detach()
                 mask = (captions == 0)
                 num_words = words_embs.size(2)

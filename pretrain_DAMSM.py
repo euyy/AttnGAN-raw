@@ -28,6 +28,7 @@ from torch.autograd import Variable
 import torch.backends.cudnn as cudnn
 import torchvision.transforms as transforms
 
+from model import TextEncoder
 
 dir_path = (os.path.abspath(os.path.join(os.path.realpath(__file__), './.')))
 sys.path.append(dir_path)
@@ -46,10 +47,10 @@ def parse_args():
     return args
 
 
-def train(dataloader, cnn_model, rnn_model, batch_size,
+def train(dataloader, cnn_model, transformer_encoder, batch_size,
           labels, optimizer, epoch, ixtoword, image_dir):
     cnn_model.train()
-    rnn_model.train()
+    transformer_encoder.train()
     s_total_loss0 = 0
     s_total_loss1 = 0
     w_total_loss0 = 0
@@ -58,7 +59,7 @@ def train(dataloader, cnn_model, rnn_model, batch_size,
     start_time = time.time()
     for step, data in enumerate(dataloader, 0):
         # print('step', step)
-        rnn_model.zero_grad()
+        transformer_encoder.zero_grad()
         cnn_model.zero_grad()
 
         imgs, captions, cap_lens, \
@@ -72,10 +73,11 @@ def train(dataloader, cnn_model, rnn_model, batch_size,
         nef, att_sze = words_features.size(1), words_features.size(2)
         # words_features = words_features.view(batch_size, nef, -1)
 
-        hidden = rnn_model.init_hidden(batch_size)
+        # hidden = rnn_model.init_hidden(batch_size)
         # words_emb: batch_size x nef x seq_len
         # sent_emb: batch_size x nef
-        words_emb, sent_emb = rnn_model(captions, cap_lens, hidden)
+        # words_emb, sent_emb = rnn_model(captions, cap_lens, hidden)
+        words_emb, sent_emb = transformer_encoder(captions)
 
         w_loss0, w_loss1, attn_maps = words_loss(words_features, words_emb, labels,
                                                  cap_lens, class_ids, batch_size)
@@ -90,10 +92,15 @@ def train(dataloader, cnn_model, rnn_model, batch_size,
         s_total_loss1 += s_loss1.data
         #
         loss.backward()
-        #
+        #! 因为 Transformer encoder 采用了残差连接，所以不会出现梯度消失的问题
+        #! 采用了 normalization ，所以避免了梯度爆炸的问题
+        #! clip_grad_norm 截断了梯度，对于所有大于 max_norm 的梯度，截断为 max_norm 
+        #! 所以可以解决梯度爆炸的问题，但是不能解决梯度消失的问题
+
+        #! 考虑到归一化不一定可以解决梯度爆炸的问题，这里还是采用了截断梯度的方法
         # `clip_grad_norm` helps prevent
         # the exploding gradient problem in RNNs / LSTMs.
-        torch.nn.utils.clip_grad_norm(rnn_model.parameters(),
+        torch.nn.utils.clip_grad_norm(transformer_encoder.parameters(),
                                       cfg.TRAIN.RNN_GRAD_CLIP)
         optimizer.step()
 
@@ -130,9 +137,9 @@ def train(dataloader, cnn_model, rnn_model, batch_size,
     return count
 
 
-def evaluate(dataloader, cnn_model, rnn_model, batch_size):
+def evaluate(dataloader, cnn_model, transformer_encoder, batch_size):
     cnn_model.eval()
-    rnn_model.eval()
+    transformer_encoder.eval()
     s_total_loss = 0
     w_total_loss = 0
     for step, data in enumerate(dataloader, 0):
@@ -143,8 +150,9 @@ def evaluate(dataloader, cnn_model, rnn_model, batch_size):
         # nef = words_features.size(1)
         # words_features = words_features.view(batch_size, nef, -1)
 
-        hidden = rnn_model.init_hidden(batch_size)
-        words_emb, sent_emb = rnn_model(captions, cap_lens, hidden)
+        # hidden = rnn_model.init_hidden(batch_size)
+        # words_emb, sent_emb = rnn_model(captions, cap_lens, hidden)
+        words_emb, sent_emb = transformer_encoder(captions)
 
         w_loss0, w_loss1, attn = words_loss(words_features, words_emb, labels,
                                             cap_lens, class_ids, batch_size)
@@ -165,7 +173,8 @@ def evaluate(dataloader, cnn_model, rnn_model, batch_size):
 
 def build_models():
     # build model ############################################################
-    text_encoder = RNN_ENCODER(dataset.n_words, nhidden=cfg.TEXT.EMBEDDING_DIM)
+    # text_encoder = RNN_ENCODER(dataset.n_words, nhidden=cfg.TEXT.EMBEDDING_DIM)
+    text_encoder = TextEncoder()
     image_encoder = CNN_ENCODER(cfg.TEXT.EMBEDDING_DIM)
     labels = Variable(torch.LongTensor(range(batch_size)))
     start_epoch = 0
@@ -241,7 +250,7 @@ if __name__ == "__main__":
     dataset = TextDataset(cfg.DATA_DIR, 'train',
                           base_size=cfg.TREE.BASE_SIZE,
                           transform=image_transform)
-
+    cfg.TEXT.DIC_LEN = dataset.n_words
     print(dataset.n_words, dataset.embeddings_num)
     assert dataset
     dataloader = torch.utils.data.DataLoader(
@@ -282,7 +291,7 @@ if __name__ == "__main__":
             print('-' * 89)
             if lr > cfg.TRAIN.ENCODER_LR/10.:
                 lr *= 0.98
-
+            epoch += 1
             if (epoch % cfg.TRAIN.SNAPSHOT_INTERVAL == 0 or
                 epoch == cfg.TRAIN.MAX_EPOCH):
                 torch.save(image_encoder.state_dict(),
