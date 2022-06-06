@@ -1,3 +1,11 @@
+'''
+Description: 
+version: 
+Author: Yue Yang
+Date: 2022-04-24 15:47:50
+LastEditors: Yue Yang
+LastEditTime: 2022-06-06 22:57:21
+'''
 import torch
 import torch.nn as nn
 import torch.nn.parallel
@@ -12,23 +20,166 @@ from miscc.config import cfg
 from GlobalAttention import GlobalAttentionGeneral as ATT_NET
 
 from transformer.Models import Encoder
+from transformer.Models import PositionalEncoding
+from transformer.Layers import DecoderLayer
+
+
+class ImageGenerator(nn.Module):
+    def __init__(self,):
+        super(ImageGenerator, self).__init__()
+
+        ngf = cfg.GAN.GF_DIM
+        nef = cfg.TEXT.EMBEDDING_DIM
+        ncf = cfg.GAN.CONDITION_DIM
+        self.ca_net = CA_NET()
+
+        if cfg.TREE.BRANCH_NUM > 0:
+            self.h_net1 = INIT_STAGE_G(ngf * 16, ncf)
+            self.img_net1 = GET_IMAGE_G(ngf)
+        # gf x 64 x 64
+        if cfg.TREE.BRANCH_NUM > 1:
+            self.h_net2 = ImageDecoderBlock(
+                ngf, d_model, d_inner, n_head, n_layers, d_k, d_v, n_position=200)
+            self.img_net2 = GET_IMAGE_G(ngf//4)
+        if cfg.TREE.BRANCH_NUM > 2:
+            self.h_net3 = ImageDecoderBlock(
+                ndf, d_model, d_inner, n_head, n_layers, d_k, d_v, n_position=200)
+            self.img_net3 = GET_IMAGE_G(ngf//16)
+
+    def forward(self, z_code, sent_emb, word_embs, mask):
+        """
+            :param z_code: batch x cfg.GAN.Z_DIM
+            :param sent_emb: batch x cfg.TEXT.EMBEDDING_DIM
+            :param word_embs: batch x cdf x seq_len
+            :param mask: batch x seq_len
+            :return:
+        """
+        fake_imgs = []
+        att_maps = []
+        c_code, mu, logvar = self.ca_net(sent_emb)
+
+        if cfg.TREE.BRANCH_NUM > 0:
+            h_code1 = self.h_net1(z_code, c_code)  # *  batch x ngf x 64 x 64
+            fake_img1 = self.img_net1(h_code1)  # * batch x 3 x 64 x 64
+            fake_imgs.append(fake_img1)
+        if cfg.TREE.BRANCH_NUM > 1:
+            bs, idf, ih, iw = h_code1.size()
+            # * [bs, 64*64, ngf]
+            h_code1 = h_code1.view(bs, idf, -1).permute(0, 2, 1)
+            h_code2, att1 = \
+                self.h_net2(h_code1, word_embs, mask)
+            # * [bs, 128*128, ngf/4]
+            h_code2, _, _ = UpSampling(h_code2, ih, iw)
+
+            # * [bs, ngf/4, 128, 128]
+            img2_code = h_code2.permute(0, 2, 1).view(bs, idf//4, ih*2, iw*2)
+            fake_img2 = self.img_net2(img2_code)
+            fake_imgs.append(fake_img2)
+            if att1 is not None:
+                att_maps.append(att1)
+
+        if cfg.TREE.BRANCH_NUM > 2:
+            # * [bs, 128*128, ngf/4] => [bs, 256*256, ngf/16]
+            h_code3, att2 = \
+                self.h_net3(h_code2, word_embs, mask)
+            h_code3 = UpSampling(h_code3, ih*2, iw*2)
+
+            # * [bs, ngf/16, 256, 256]
+            img3_code = h_code3.permute(0, 2, 1).view(bs, idf//16, ih*4, iw*4)
+            fake_img3 = self.img_net3(img3_code)
+            fake_imgs.append(fake_img3)
+            if att2 is not None:
+                att_maps.append(att2)
+
+        return fake_imgs, att_maps, mu, logvar
+
+
+class ImageDecoderBlock(nn.Module):
+    '''
+    description: 输入图像与文本的编码，并输出文本引导后的图像编码
+                没有进行放缩处理
+    return {*}
+    '''
+
+    def __init__(self, ndf, d_model, d_inner, n_head, n_layers, d_k, d_v, n_position=200, dropout=0.1):
+        '''
+        description: 
+        param {*} self
+        param {*} ndf: 位置编码的维度，也就是图像的维度，与d_model相等
+        param {*} d_model: 图像的维度
+        param {*} d_inner: 前馈网络中，高维的维度
+        param {*} n_head: 多头注意力中，头的个数
+        param {*} n_layers: 有多少个decoder layer
+        param {*} d_k: 多头注意力中，q的维度，与k的维度相同
+        param {*} d_v: 多头注意力中，v的维度
+        param {*} n_position: 最大的位置编码个数
+        param {*} dropout: dropout层的随机概率
+        return {*}
+        '''
+        super(ImageDecoderBlock, self).__init__()
+        self.d_model = d_model
+        self.text_emb_dim = cfg.TEXT.EMBEDDING_DIM
+        self.linear = nn.Linear(self.text_emb_dim, d_model)
+        self.position_enc = PositionalEncoding(ndf, n_position=n_position)
+        self.dropout = nn.Dropout(p=dropout)
+        self.layer_stack = nn.ModuleList([
+            DecoderLayer(d_model, d_inner, n_head, d_k, d_v, dropout=dropout)
+            for _ in range(n_layers)])
+
+    def forward(self, h_code, word_embs, mask):
+        '''
+        description: 将 h_code 与 word_embs 经过一系列的decoder block后，得到了c_code ( 即新的h_code )
+        param {*} self
+        param {*} h_code: [bs, ih*iw, idf] (queryL=ih*iw)
+                            上一个隐藏层传过来的，生成图像之前的向量
+        param {*} word_embs(context): [bs, text_emb_dim, sourceL] (sourceL=seq_len)
+                                    单词向量
+        param {*} mask
+        return {*}
+        '''
+
+        # * 让 h_code 变成一维的
+        # * 第一次时：
+        # *       idf = cfg.GAN.GF_DIM = 128
+        # *       h = 64
+        # *       w = 64
+        # *       w*h = 4096
+        # * 第二次时：
+        # *       idf = cfg.GAN.GF_DIM/4 = 32
+        # *       h = 128
+        # *       w = 128
+        # *       w*h = 16384
+        # * [bs, idf, h, w] => [bs, idf, w*h] => [bs, w*h, idf]
+        # * 位置编码
+        if(self.text_emb_dim != self.d_model):
+            word_embs = self.linear(word_embs)
+        c_code = self.position_enc(h_code)
+        att = []
+        for layer in self.layer_stack:
+            c_code, _, att = layer(c_code, word_embs)
+
+        # state size ngf/2 x 2in_size x 2in_size
+        # out_code = self.upsample(out_code)
+
+        return c_code, att
+
 
 class TextEncoder(nn.Module):
     def __init__(self):
-        super(TextEncoder,self).__init__()
+        super(TextEncoder, self).__init__()
         self.text_len = cfg.TEXT.DIC_LEN
-        d_model = cfg.TEXT.EMBEDDING_DIM 
+        d_model = cfg.TEXT.EMBEDDING_DIM
         nlayers = cfg.TEXT_ENCODER.N_LAYERS
         nhead = cfg.TEXT_ENCODER.N_HEAD
         dropout = cfg.TEXT_ENCODER.DROPOUT
-        d_hid = cfg.TEXT_ENCODER.D_HID 
+        d_hid = cfg.TEXT_ENCODER.D_HID
         self.encoder = Encoder(n_src_vocab=self.text_len,
-                                            d_word_vec=d_model,
-                                            n_layers=nlayers, 
-                                            n_head=nhead, 
-                                            d_model=d_model,
-                                            dropout=dropout,
-                                            d_inner=d_hid)
+                               d_word_vec=d_model,
+                               n_layers=nlayers,
+                               n_head=nhead,
+                               d_model=d_model,
+                               dropout=dropout,
+                               d_inner=d_hid)
 
     def forward(self, captions):
         '''
@@ -40,8 +191,8 @@ class TextEncoder(nn.Module):
         '''
         enc_list = self.encoder(captions)
         enc_emb = enc_list[0]
-        sent_emb, words_emb = enc_emb[:,0,:], enc_emb[:,1:,:]
-        return words_emb.transpose(1,2).contiguous(), sent_emb
+        sent_emb, words_emb = enc_emb[:, 0, :], enc_emb[:, 1:, :]
+        return words_emb.transpose(1, 2).contiguous(), sent_emb
 
 
 class GLU(nn.Module):
@@ -54,6 +205,7 @@ class GLU(nn.Module):
         nc = int(nc/2)
         return x[:, :nc] * torch.sigmoid(x[:, nc:])
 
+
 class Interpolate(nn.Module):
     def __init__(self, scale_factor, mode, size=None):
         super(Interpolate, self).__init__()
@@ -63,7 +215,8 @@ class Interpolate(nn.Module):
         self.size = size
 
     def forward(self, x):
-        x = self.interp(x, scale_factor=self.scale_factor, mode=self.mode, size=self.size)
+        x = self.interp(x, scale_factor=self.scale_factor,
+                        mode=self.mode, size=self.size)
         return x
 
 
@@ -88,8 +241,30 @@ def upBlock(in_planes, out_planes):
         GLU())
     return block
 
+# * TransGAN 两个Encoder Block 之间的用于升分辨率的操作，会将 [c, h ,w] => [c/4, h*2, w*2]
+
+
+def UpSampling(x, H, W):
+    '''
+    description: [batch_size, dim_nums = h*w, channel_num]
+    param {*} x: [b,n,c], n = h*w
+    param {*} H: 
+    param {*} W
+    return {*}
+    '''
+    B, N, C = x.size()
+    assert N == H*W
+    x = x.permute(0, 2, 1)
+    x = x.view(-1, C, H, W)
+    x = nn.PixelShuffle(2)(x)
+    B, C, H, W = x.size()
+    x = x.view(-1, C, H*W)
+    x = x.permute(0, 2, 1)
+    return x, H, W
 
 # Keep the spatial size
+
+
 def Block3x3_relu(in_planes, out_planes):
     block = nn.Sequential(
         conv3x3(in_planes, out_planes * 2),
@@ -251,7 +426,8 @@ class CNN_ENCODER(nn.Module):
     def forward(self, x):
         features = None
         # --> fixed-size input: batch x 3 x 299 x 299
-        x = nn.functional.interpolate(x,size=(299, 299), mode='bilinear', align_corners=False)
+        x = nn.functional.interpolate(
+            x, size=(299, 299), mode='bilinear', align_corners=False)
         # 299 x 299 x 3
         x = self.Conv2d_1a_3x3(x)
         # 149 x 149 x 32
@@ -337,7 +513,14 @@ class CA_NET(nn.Module):
         eps = Variable(eps)
         return eps.mul(std).add_(mu)
 
-    def forward(self, text_embedding):
+    def forwdard(self, text_embedding):
+        '''
+        description: 
+        param {*} self
+        param {*} text_embedding: sentence embedding, [bs,1, dim_emb]
+        return {*}
+        '''
+
         mu, logvar = self.encode(text_embedding)
         c_code = self.reparametrize(mu, logvar)
         return c_code, mu, logvar
@@ -412,6 +595,13 @@ class NEXT_STAGE_G(nn.Module):
             word_embs(context): batch x cdf x sourceL (sourceL=seq_len)
             c_code1: batch x idf x queryL
             att1: batch x sourceL x queryL
+
+            h_code: 上一个隐藏层传过来的，生成图像之前的向量
+            word_embs: 单词向量
+
+            做法：将 h_code 与 word_embs 经过一个注意力机制，得到新的c_code
+                并与 h_code 进行拼接，
+                经过 residual 操作和 upsample 操作后得到 out_code
         """
         self.att.applyMask(mask)
         c_code, att = self.att(h_code, word_embs)
@@ -458,6 +648,15 @@ class G_NET(nn.Module):
             self.img_net3 = GET_IMAGE_G(ngf)
 
     def forward(self, z_code, sent_emb, word_embs, mask):
+        '''
+        description: 
+        param {*} self
+        param {*} z_code
+        param {*} sent_emb
+        param {*} word_embs
+        param {*} mask
+        return {*}
+        '''
         """
             :param z_code: batch x cfg.GAN.Z_DIM
             :param sent_emb: batch x cfg.TEXT.EMBEDDING_DIM
@@ -489,7 +688,6 @@ class G_NET(nn.Module):
                 att_maps.append(att2)
 
         return fake_imgs, att_maps, mu, logvar
-
 
 
 class G_DCGAN(nn.Module):
@@ -598,19 +796,21 @@ class D_GET_LOGITS(nn.Module):
         param {*} c_code: [bs, 1, sent_dim]
         return {*}
         '''
-        
+
         if self.bcondition and c_code is not None:
             # conditioning output
-            c_code = c_code.view(-1, self.ef_dim, 1, 1) # ! [bs, sent_dim, 1, 1]
-            c_code = c_code.repeat(1, 1, 4, 4) # ! [bs, sent_dim, 4, 4] 
+            # ! [bs, sent_dim, 1, 1]
+            c_code = c_code.view(-1, self.ef_dim, 1, 1)
+            c_code = c_code.repeat(1, 1, 4, 4)  # ! [bs, sent_dim, 4, 4]
             # state size (ngf+egf) x 4 x 4
-            h_c_code = torch.cat((h_code, c_code), 1) # ! [bs, sent_dim+ndf*8, 4, 4]
+            # ! [bs, sent_dim+ndf*8, 4, 4]
+            h_c_code = torch.cat((h_code, c_code), 1)
             # state size ngf x in_size x in_size
-            h_c_code = self.jointConv(h_c_code) # ! [bs, ndf*8, 4, 4]
+            h_c_code = self.jointConv(h_c_code)  # ! [bs, ndf*8, 4, 4]
         else:
             h_c_code = h_code
 
-        output = self.outlogits(h_c_code) # ! [bs, ndf*8, 4, 4] => [bs]
+        output = self.outlogits(h_c_code)  # ! [bs, ndf*8, 4, 4] => [bs]
         return output.view(-1)
 
 

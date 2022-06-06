@@ -1,0 +1,69 @@
+{
+	"files": [
+		{
+			"path": "model.py",
+			"bookmarks": [
+				{
+					"line": 26,
+					"column": 32,
+					"label": "generator_now"
+				},
+				{
+					"line": 96,
+					"column": 35,
+					"label": "image_decoder_block"
+				},
+				{
+					"line": 166,
+					"column": 29,
+					"label": "text_encoder"
+				},
+				{
+					"line": 380,
+					"column": 29,
+					"label": "image_encoder"
+				},
+				{
+					"line": 591,
+					"column": 55,
+					"label": "next_stage_g"
+				},
+				{
+					"line": 630,
+					"column": 23,
+					"label": "generator_before"
+				}
+			]
+		},
+		{
+			"path": "trainer.py",
+			"bookmarks": [
+				{
+					"line": 243,
+					"column": 20,
+					"label": "train"
+				}
+			]
+		},
+		{
+			"path": "miscc/config.py",
+			"bookmarks": [
+				{
+					"line": 8,
+					"column": 13,
+					"label": "config"
+				}
+			]
+		},
+		{
+			"path": "GlobalAttention.py",
+			"bookmarks": [
+				{
+					"line": 98,
+					"column": 15,
+					"label": "GlobalAttention"
+				}
+			]
+		}
+	]
+}

@@ -1,3 +1,11 @@
+<!--
+ * @Description: 
+ * @version: 
+ * @Author: Yue Yang
+ * @Date: 2022-05-13 07:04:07
+ * @LastEditors: Yue Yang
+ * @LastEditTime: 2022-06-06 22:58:13
+-->
 # version 1.0
 
 主要是把文本编码器换成了Transformer encoder。
@@ -64,3 +72,5 @@ python main.py --cfg cfg/bird_attn2.yml --gpu 0
 }
 ```
 
+## 2022/06/06
+把 image decoder 部分写完了，没有使用残差结构，等待调试看是否有其他问题

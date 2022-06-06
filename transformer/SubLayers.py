@@ -4,22 +4,24 @@ version:
 Author: Yue Yang
 Date: 2022-03-30 16:41:41
 LastEditors: Yue Yang
-LastEditTime: 2022-04-16 10:38:07
+LastEditTime: 2022-06-06 22:37:56
 '''
 ''' Define the sublayers in encoder/decoder layer '''
+
 import numpy as np
 import torch.nn as nn
 import torch.nn.functional as F
 from transformer.Modules import ScaledDotProductAttention
-
+from miscc.config import cfg
 __author__ = "Yu-Hsiang Huang"
+
 
 class MultiHeadAttention(nn.Module):
     ''' Multi-Head Attention module '''
 
     def __init__(self, n_head, d_model, d_k, d_v, dropout=0.1):
         super().__init__()
-
+        self.d_model = d_model
         self.n_head = n_head
         self.d_k = d_k
         self.d_v = d_v
