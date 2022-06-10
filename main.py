@@ -21,17 +21,6 @@ import torchvision.transforms as transforms
 # ******************************** 将终端输出的内容写入output_dir/out.log'文件夹中 *****************************
 # ************************************************************************************************
 
-class Logger(object):
-    def __init__(self, fileN="Default.log"):
-        self.terminal = sys.stdout
-        self.log = open(fileN, "a")
-
-    def write(self, message):
-        self.terminal.write(message)
-        self.log.write(message)
-
-    def flush(self):
-        pass
 
 
 
@@ -132,7 +121,7 @@ if __name__ == "__main__":
     output_dir = '../output/%s_%s_%s' % \
         (cfg.DATASET_NAME, cfg.CONFIG_NAME, timestamp)
 
-    sys.stdout = Logger(output_dir+'/out.txt')
+   
 
     split_dir, bshuffle = 'train', True
     if not cfg.TRAIN.FLAG:

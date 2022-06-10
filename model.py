@@ -4,7 +4,7 @@ version:
 Author: Yue Yang
 Date: 2022-04-24 15:47:50
 LastEditors: Yue Yang
-LastEditTime: 2022-06-06 22:57:21
+LastEditTime: 2022-06-08 23:11:35
 '''
 import torch
 import torch.nn as nn
@@ -39,11 +39,11 @@ class ImageGenerator(nn.Module):
         # gf x 64 x 64
         if cfg.TREE.BRANCH_NUM > 1:
             self.h_net2 = ImageDecoderBlock(
-                ngf, d_model, d_inner, n_head, n_layers, d_k, d_v, n_position=200)
+                ndf=ngf, d_model=ngf, d_inner=128, n_head=6, n_layers=3, d_k=128, d_v=128, n_position=5000)
             self.img_net2 = GET_IMAGE_G(ngf//4)
         if cfg.TREE.BRANCH_NUM > 2:
             self.h_net3 = ImageDecoderBlock(
-                ndf, d_model, d_inner, n_head, n_layers, d_k, d_v, n_position=200)
+                ndf=ngf//4, d_model=ngf//4, d_inner=32, n_head=6, n_layers=2, d_k=32, d_v=32, n_position=17000)
             self.img_net3 = GET_IMAGE_G(ngf//16)
 
     def forward(self, z_code, sent_emb, word_embs, mask):
@@ -56,6 +56,7 @@ class ImageGenerator(nn.Module):
         """
         fake_imgs = []
         att_maps = []
+        word_embs =word_embs.permute(0, 2, 1).contiguous()
         c_code, mu, logvar = self.ca_net(sent_emb)
 
         if cfg.TREE.BRANCH_NUM > 0:
@@ -76,6 +77,7 @@ class ImageGenerator(nn.Module):
             fake_img2 = self.img_net2(img2_code)
             fake_imgs.append(fake_img2)
             if att1 is not None:
+                att1 = att1.view(bs, -1, 64, 64)
                 att_maps.append(att1)
 
         if cfg.TREE.BRANCH_NUM > 2:
@@ -89,6 +91,7 @@ class ImageGenerator(nn.Module):
             fake_img3 = self.img_net3(img3_code)
             fake_imgs.append(fake_img3)
             if att2 is not None:
+                att2 = att2.view(bs, -1, 128, 128)
                 att_maps.append(att2)
 
         return fake_imgs, att_maps, mu, logvar
@@ -156,7 +159,9 @@ class ImageDecoderBlock(nn.Module):
         c_code = self.position_enc(h_code)
         att = []
         for layer in self.layer_stack:
+            resudual_code = c_code
             c_code, _, att = layer(c_code, word_embs)
+            c_code = resudual_code + c_code
 
         # state size ngf/2 x 2in_size x 2in_size
         # out_code = self.upsample(out_code)
@@ -513,7 +518,7 @@ class CA_NET(nn.Module):
         eps = Variable(eps)
         return eps.mul(std).add_(mu)
 
-    def forwdard(self, text_embedding):
+    def forward(self, text_embedding):
         '''
         description: 
         param {*} self

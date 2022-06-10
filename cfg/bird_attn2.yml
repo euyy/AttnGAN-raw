@@ -7,14 +7,14 @@ WORKERS: 4
 
 
 TREE:
-    BRANCH_NUM: 3
+    BRANCH_NUM: 2
 
 
 TRAIN:
     FLAG: True
     NET_G: ''  # '../models/bird_AttnGAN2.pth'
     B_NET_D: True
-    BATCH_SIZE: 16  # 22
+    BATCH_SIZE: 3  # 22
     MAX_EPOCH: 600
     SNAPSHOT_INTERVAL: 50
     DISCRIMINATOR_LR: 0.0002

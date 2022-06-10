@@ -11,12 +11,12 @@ import torch.backends.cudnn as cudnn
 from PIL import Image
 
 from miscc.config import cfg
-from miscc.utils import mkdir_p
+from miscc.utils import mkdir_p, Logger
 from miscc.utils import build_super_images, build_super_images2
 from miscc.utils import weights_init, load_params, copy_G_params
 from model import G_DCGAN, G_NET
 from datasets import prepare_data
-from model import RNN_ENCODER, CNN_ENCODER
+from model import RNN_ENCODER, CNN_ENCODER, ImageGenerator
 # from transformer.Models import Encoder
 
 from miscc.losses import words_loss
@@ -36,6 +36,7 @@ class condGANTrainer(object):
             self.image_dir = os.path.join(output_dir, 'Image')
             mkdir_p(self.model_dir)
             mkdir_p(self.image_dir)
+            sys.stdout = Logger(output_dir+'/out.txt')
 
         torch.cuda.set_device(cfg.GPU_ID)
         # ! cudnn.benchmark = True: 使 cuDNN 对多个卷积算法进行基准测试并选择最快的。
@@ -93,7 +94,7 @@ class condGANTrainer(object):
             netsD = [D_NET(b_jcu=False)]
         else:
             from model import D_NET64, D_NET128, D_NET256
-            netG = G_NET()
+            netG = ImageGenerator()
             if cfg.TREE.BRANCH_NUM > 0:
                 netsD.append(D_NET64())
             if cfg.TREE.BRANCH_NUM > 1:

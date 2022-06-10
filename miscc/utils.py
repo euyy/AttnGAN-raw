@@ -1,4 +1,5 @@
 import os
+import sys
 import errno
 import numpy as np
 from torch.nn import init
@@ -25,6 +26,19 @@ COLOR_DIC = {0:[128,64,128],  1:[244, 35,232],
              16:[0, 80, 100], 17:[0, 0, 230],
              18:[0,  0, 70],  19:[0, 0,  0]}
 FONT_MAX = 50
+
+
+class Logger(object):
+    def __init__(self, fileN="Default.log"):
+        self.terminal = sys.stdout
+        self.log = open(fileN, "a")
+
+    def write(self, message):
+        self.terminal.write(message)
+        self.log.write(message)
+
+    def flush(self):
+        pass
 
 
 def drawCaption(convas, captions, ixtoword, vis_size, off1=2, off2=2):
